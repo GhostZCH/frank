@@ -1,8 +1,8 @@
 // flatten dict
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <memory.h>
+#include <string.h>
 #include <frk_dict.h>
 
 const int64_t dict_init_size = 8;
@@ -21,8 +21,8 @@ frk_hash(char *str, int64_t len)
 }
 
 
-frk_iter_t*
-frk_iterator(frk_dict_t *d, frk_iter_t *last, frk_iter_t *next)
+frk_dict_iter_t*
+frk_dict_iter(frk_dict_t *d, frk_dict_iter_t *last, frk_dict_iter_t *next)
 {
     if (last == NULL) {
         next->bucket = -1;
@@ -72,11 +72,11 @@ frk_get_dict(frk_dict_t *d, char *key, int64_t key_len)
 }
 
 
-int64_t*
-frk_get_int(frk_dict_t *d, char *key, int64_t key_len)
+double*
+frk_get_num(frk_dict_t *d, char *key, int64_t key_len)
 {
     frk_node_t* n = frk_get_node(d, key, key_len);
-    return (n != NULL && n->type == FRK_INT) ? &n->i : NULL;
+    return (n != NULL && n->type == FRK_NUM) ? &n->n : NULL;
 }
 
 
@@ -86,7 +86,6 @@ frk_get_str(frk_dict_t *d, char *key, int64_t key_len)
     frk_node_t* n = frk_get_node(d, key, key_len);
     return (n != NULL && n->type == FRK_STR) ? n->s : NULL;
 }
-
 
 
 frk_str_t*
@@ -99,6 +98,19 @@ frk_new_str(char *src, int64_t len, frk_malloc_fp m, void* data)
     tar->len = len;
     memcpy(tar->data, src, len);
     return tar;
+}
+
+
+void
+frk_dict_clear(frk_dict_t *d)
+{
+    int64_t b = 0;
+    frk_node_t *iter;
+    for (b = 0; b < d->bucket_count; b++) {
+        for (iter = d->buckets[b]; iter != NULL; iter = iter->next) {
+            frk_remove_node(d, iter);
+        }
+    }
 }
 
 
@@ -209,8 +221,8 @@ frk_insert_node(frk_dict_t *d, char *key, int64_t key_len)
 }
 
 
-int64_t*
-frk_insert_int(frk_dict_t *d, char *key, int64_t key_len, int64_t val)
+double*
+frk_insert_num(frk_dict_t *d, char *key, int64_t key_len, double val)
 {
     if (d == NULL || key == NULL || key_len == 0) {
         return NULL;
@@ -222,9 +234,9 @@ frk_insert_int(frk_dict_t *d, char *key, int64_t key_len, int64_t val)
         return NULL;
     }
 
-    node->type = FRK_INT;
-    node->i = val;
-    return &node->i;
+    node->type = FRK_NUM;
+    node->n = val;
+    return &node->n;
 }
 
 
@@ -288,12 +300,16 @@ frk_new_dict(frk_malloc_fp m, frk_free_fp f, void* data)
 int64_t
 frk_str_dump(frk_str_t* str, char *buffer, int64_t len)
 {
+    if (len < str->len + 2) {
+        return -1;
+    }
+
     char *p = buffer;
     *p++ = '"';
     memcpy(p, str->data, str->len);
     p += str->len;
     *p++ = '"';
-    return p - buffer;
+    return str->len + 2;
 }
 
 
@@ -305,38 +321,109 @@ frk_dict_dump(frk_dict_t *d, char *buffer, int64_t len)
     }
 
     int64_t n;
-    char* p = buffer;
+    char *p = buffer, *end = buffer + len;
 
     *p++ = '{';
-    frk_iter_t tmp, *i = frk_iterator(d, NULL, &tmp);
-    for (; i != NULL; i = frk_iterator(d, i, &tmp)) {
+    frk_dict_iter_t tmp, *i = frk_dict_iter(d, NULL, &tmp);
+    for (; i != NULL; i = frk_dict_iter(d, i, &tmp)) {
         frk_node_t *node = i->node;
-        
-        if ((n = frk_str_dump(node->key, p, len - (p - buffer))) < 0) {
+
+        n = frk_str_dump(node->key, p, end - p);
+        if (n < 0 || p + n + 1 >= end) {
             return -1;
         }
         p += n;
         *p++ = ':';
 
-        if (i->node->type == FRK_STR) {
-            n = frk_str_dump(node->s, p, len - (p - buffer));
-        } else if (i->node->type == FRK_INT) {
-            n = len - (p - buffer) < 20 ? -1: sprintf(p, "%ld", i->node->i);
+        if (node->type == FRK_STR) {
+            n = frk_str_dump(node->s, p, end - p);
+        } else if (node->type == FRK_NUM) {
+            n = end - p < 20 ? -1: sprintf(p, "%lf", i->node->n);
         } else {
-            n = frk_dict_dump(i->node->d, p, len - (p - buffer));
+            n = frk_dict_dump(node->d, p, end - p);
         }
         
-        if (n < 0) {
-            return n;
+        if (n < 0 || p + n + 1 >= end) {
+            return -1;
         }
         p += n;
         *p++ = ',';
     }
 
-    *(p - 1) = '}';
+    if (*(p - 1) == ',') {
+        p--;
+    }
+    *p++ = '}';
 
     return p - buffer;
 }
 
-// int frk_dump_json(frk_dict_t *d, frk_str_t* buf);
-// int frk_load_json(frk_dict_t *d, frk_str_t* buf);
+
+char*
+frk_next_char(char* p)
+{
+    for(;*p == ' ' && *p; p++);
+    return p;
+}
+
+
+frk_dict_t*
+frk_dict_load(frk_dict_t* d, char* json, char **end)
+{
+    char *p = json, *tmp, *key;
+    if (*(p = frk_next_char(p))!= '{') {
+        return NULL;
+    }
+    p++;
+
+    // todo rewrite this
+    while (*(p = frk_next_char(p))) {
+        char* key;
+        int64_t key_len;
+
+        if (*p != '"' || (tmp = strchr(p+1, '"')) == NULL) {
+            return NULL;
+        }
+        key = p + 1;
+        key_len = tmp - p - 1;
+
+        p = frk_next_char(tmp + 1);
+        if (*p++ != ':') {
+            return NULL;
+        }
+        p = frk_next_char(p);
+
+        if (*p == '"') {
+            if ((tmp = strchr(p+1, '"')) == NULL
+                || frk_insert_string(d, key, key_len, p + 1, tmp - p - 1) == NULL) {
+                return NULL;
+            }
+            p = tmp + 1;
+        } else if (*p == '-' || (*p <= '9' && *p >= '0')) {
+            double n = strtod(p, &p);
+            if (frk_insert_num(d, key, key_len, n) == NULL) {
+                return NULL;
+            }
+        } else if (*p == '{') {
+            frk_dict_t* val = frk_insert_dict(d, key, key_len);
+            if (frk_dict_load(val, p, &p) == NULL) {
+                return NULL;
+            }
+        } else {
+            return NULL;
+        }
+
+        if (*p++ == '}') {
+            break;
+        }
+
+        if (*p == ',') {
+            p++;
+        }
+    }
+
+    if (end != NULL) {
+        *end = p;
+    }
+    return d;
+}
