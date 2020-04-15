@@ -61,8 +61,8 @@ frk_new_dict(frk_store_t *s)
         return NULL;
     }
 
-    d->count = 0;
     d->store = s;
+    d->count = 0;
     d->bucket_count = frk_dict_init_size;
     d->buckets = buckets;
 
@@ -82,6 +82,7 @@ frk_new_list(frk_store_t *s)
         return NULL;
     }
 
+    l->store = s;
     l->count = 0;
     l->items = items;
     l->capacity = frk_list_init_size;
@@ -391,7 +392,7 @@ frk_dict_iter(frk_dict_t *d, frk_dict_iter_t *last, frk_dict_iter_t *next)
 frk_item_t*
 frk_list_get(frk_list_t *l, int64_t index)
 {
-    return l->count < index ? l->items[index]: NULL;
+    return index < l->count ? l->items[index]: NULL;
 }
 
 
@@ -533,7 +534,13 @@ frk_list_iter(frk_list_t *l, frk_list_iter_t *last)
 void
 frk_list_del(frk_list_t *l, int64_t index)
 {
+    if (index >= l->count) {
+        return;
+    }
 
+    frk_item_t **start = l->items + index;
+    memmove(start, start + 1, sizeof(frk_item_t *) * (l->count - index - 1));
+    l->count--;
 }
 
 

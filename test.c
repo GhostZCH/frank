@@ -53,55 +53,7 @@ slab_test()
 }
 
 
-void
-dict_test()
-{
-    void* pool = malloc(size);
-    frk_slab_t *slab = frk_new_slab(pool, size);
-    frk_store_t *store = frk_new_store(slab_malloc, slab_free, slab);
-
-    frk_dict_t* root = frk_new_dict(store);
-
-    frk_dict_set_num(root, "aaa", 3, 1);
-    frk_dict_set_num(root, "aaa", 3, 2);
-    frk_dict_set_str(root, "bbb", 3, "xyz", 4);
-    frk_dict_set_str(root, "bbb", 3, "xyzzzz", 4);
-    frk_dict_t* sub = frk_dict_set_dict(root, "sub", 3);
-    frk_dict_set_num(sub, "aaa", 3, 11);
-    frk_dict_set_num(sub, "aaa", 3, 22);
-    frk_dict_set_str(sub, "bbb", 3, "xyz", 4);
-    frk_dict_t* subsub = frk_dict_set_dict(sub, "subsub", 6);
-    frk_dict_set_num(subsub, "aaa", 3, 111);
-    frk_dict_set_num(subsub, "aaa", 3, 222);
-    frk_dict_set_str(subsub, "bbb", 3, "xyz", 4);
-
-    printf("%lf\n", *frk_dict_get_num(root, "aaa", 3));
-    printf("%s\n", frk_dict_get_str(root, "bbb", 3)->data);
-    printf("%lf\n", *frk_dict_get_num(sub, "aaa", 3));
-    printf("%s\n", frk_dict_get_str(sub, "bbb", 3)->data);
-    printf("%lf\n", *frk_dict_get_num(subsub, "aaa", 3));
-    printf("%s\n", frk_dict_get_str(subsub, "bbb", 3)->data);
-
-    frk_dict_del(root, "aaa", 3);
-    frk_dict_del(root, "bbb", 3);
-    frk_dict_del(root, "sub", 3);
-
-    int i = 0;
-    char key[1];
-    for (; i < 200; i++) {
-        key[0] = (char)i;
-        frk_dict_set_num(root, key, 1, i);
-    }
-    printf("%p\n", frk_dict_get_num(root, "0", 1));
-    for (i = 0; i < 200; i++) {
-        key[0] = (char)i;
-        frk_dict_del(root, key, 1);
-    }
-    printf("%p\n", frk_dict_get_num(root, "0", 1));
-}
-
-
-void app_test()
+void store_test()
 {
     void* pool = malloc(size);
     frk_slab_t *slab = frk_new_slab(pool, size);
@@ -129,6 +81,14 @@ void app_test()
     frk_dict_set_num(black, "222.222.222.2", strlen("222.222.222.2"), 1);
     frk_dict_set_num(black, "222.222.222.3", strlen("222.222.222.3"), 1);
     frk_dict_set_num(black, "222.222.222.4", strlen("222.222.222.4"), 1);
+    frk_list_t* rules = frk_dict_set_list(news, "rules", strlen("rules"));
+    frk_list_append_num(rules, 10010);
+    frk_list_append_str(rules, "_XSS_", 5);
+    frk_list_set_str(rules, 1, "XSS", 3);
+    frk_list_append_dict(rules);
+    frk_dict_set_num(frk_list_get_dict(rules, 2), "A", 1, 100);
+    frk_dict_set_num(frk_list_get_dict(rules, 2), "B", 1, 200);
+    frk_dict_set_num(frk_list_get_dict(rules, 2), "C", 1, 300);
 
     frk_dict_t* b = frk_dict_set_dict(sites, "b.com", strlen("b.com"));
     frk_dict_t* wild_b = frk_dict_set_dict(b, ".b.com", strlen(".bcom"));
@@ -197,8 +157,7 @@ load_test()
 int
 main() {
     slab_test();
-    dict_test();
-    app_test();
+    store_test();
     // load_test();
 
     return 0;
