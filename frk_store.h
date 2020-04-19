@@ -21,13 +21,13 @@ typedef struct frk_dict_iter_s frk_dict_iter_t;
 typedef struct frk_dict_node_s frk_dict_node_t;
 typedef struct frk_item_s frk_item_t;
 typedef frk_item_t* frk_list_iter_t;
-typedef void* (*frk_malloc_cb)(int64_t size, void* data);
+typedef void* (*frk_calloc_cb)(int64_t size, void* data);
 typedef void (*frk_free_cb)(void* ptr, void *data);
 
 
 struct frk_store_s
 {
-    frk_malloc_cb malloc;
+    frk_calloc_cb calloc;
     frk_free_cb free;
     void* data;
 };
@@ -87,13 +87,13 @@ struct frk_dict_iter_s
 {
     int64_t bucket;
     frk_dict_node_t* node;
+    frk_item_t *item;
 };
 
 
 // new
-frk_store_t* frk_new_store(frk_malloc_cb m, frk_free_cb f, void* data);
-frk_dict_t* frk_new_dict(frk_store_t *s);
-frk_list_t* frk_new_list(frk_store_t *s);
+frk_store_t* frk_new_store(frk_calloc_cb m, frk_free_cb f, void* data);
+frk_item_t* frk_root(frk_store_t *s);
 
 // dict
 frk_item_t* frk_dict_get(frk_dict_t *d, char *key, int64_t klen);
