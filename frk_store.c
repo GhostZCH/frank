@@ -23,13 +23,13 @@ frk_hash(char *str, int64_t len)
 
 
 frk_store_t*
-frk_new_store(frk_malloc_cb m, frk_free_cb f, void* data)
+frk_new_store(frk_calloc_cb m, frk_free_cb f, void* data)
 {
     frk_store_t* s = m(sizeof(frk_store_t), data);
     if (s == NULL) {
         return NULL;
     }
-    s->malloc = m;
+    s->calloc = m;
     s->free = f;
     s->data = data;
     return s;
@@ -39,7 +39,7 @@ frk_new_store(frk_malloc_cb m, frk_free_cb f, void* data)
 frk_str_t*
 frk_new_str(frk_store_t *s, char *src, int64_t len)
 {
-    frk_str_t* str = s->malloc(sizeof(frk_str_t)+len, s->data);
+    frk_str_t* str = s->calloc(sizeof(frk_str_t)+len, s->data);
     if (str == NULL) {
         return NULL;
     }
@@ -52,8 +52,8 @@ frk_new_str(frk_store_t *s, char *src, int64_t len)
 frk_dict_t*
 frk_new_dict(frk_store_t *s)
 {
-    frk_dict_t *d = s->malloc(sizeof(frk_dict_t), s->data);
-    frk_dict_node_t** buckets = s->malloc(sizeof(frk_dict_t *) * frk_dict_init_size, s->data);
+    frk_dict_t *d = s->calloc(sizeof(frk_dict_t), s->data);
+    frk_dict_node_t** buckets = s->calloc(sizeof(frk_dict_t *) * frk_dict_init_size, s->data);
  
     if (d == NULL || buckets == NULL) {
         s->free(d, s->data);
@@ -61,8 +61,8 @@ frk_new_dict(frk_store_t *s)
         return NULL;
     }
 
-    d->count = 0;
     d->store = s;
+    d->count = 0;
     d->bucket_count = frk_dict_init_size;
     d->buckets = buckets;
 
@@ -73,8 +73,8 @@ frk_new_dict(frk_store_t *s)
 frk_list_t*
 frk_new_list(frk_store_t *s)
 {
-    frk_list_t *l = s->malloc(sizeof(frk_list_t), s->data);
-    frk_item_t **items = s->malloc(sizeof(frk_item_t *) * frk_dict_init_size, s->data);
+    frk_list_t *l = s->calloc(sizeof(frk_list_t), s->data);
+    frk_item_t **items = s->calloc(sizeof(frk_item_t *) * frk_dict_init_size, s->data);
 
     if (l == NULL || items == NULL) {
         s->free(l, s->data);
@@ -82,6 +82,7 @@ frk_new_list(frk_store_t *s)
         return NULL;
     }
 
+    l->store = s;
     l->count = 0;
     l->items = items;
     l->capacity = frk_list_init_size;
@@ -93,7 +94,7 @@ frk_new_list(frk_store_t *s)
 frk_item_t*
 frk_new_item(frk_store_t *s, frk_type_e t, void *val, int64_t len)
 {
-    frk_item_t* item = s->malloc(sizeof(frk_item_t), s->data);
+    frk_item_t* item = s->calloc(sizeof(frk_item_t), s->data);
  
     if (item == NULL) {
         return NULL;
@@ -128,6 +129,13 @@ frk_new_item(frk_store_t *s, frk_type_e t, void *val, int64_t len)
 
     item->type = t;
     return item;
+}
+
+
+frk_item_t*
+frk_root(frk_store_t *s)
+{
+    return frk_new_item(s, FRK_DICT, NULL, 0);
 }
 
 
@@ -206,7 +214,7 @@ frk_dict_resize(frk_dict_t *d)
 {
     int64_t count =  d->bucket_count * frk_dict_incr_rate;
     frk_store_t *store = d->store;
-    frk_dict_node_t **buckets = store->malloc(sizeof(frk_dict_node_t *) * count, store->data);
+    frk_dict_node_t **buckets = store->calloc(sizeof(frk_dict_node_t *) * count, store->data);
     if (buckets == NULL) {
         return NULL;
     }
@@ -268,7 +276,7 @@ frk_dict_set(frk_dict_t *d, char *key, int64_t klen, frk_type_e t, void* val, in
 {
     frk_store_t* s = d->store;
     frk_item_t * i = frk_new_item(s, t, val, vlen);
-    frk_dict_node_t* n = s->malloc(sizeof(frk_dict_node_t) + klen, s->data);
+    frk_dict_node_t* n = s->calloc(sizeof(frk_dict_node_t) + klen, s->data);
 
     if (n == NULL || i == NULL) {
         s->free(n, s->data);
@@ -335,7 +343,7 @@ frk_dict_clear(frk_dict_t* d)
         }
     }
 
-    frk_dict_node_t **buckets = s->malloc(sizeof(frk_dict_node_t *) * frk_dict_init_size, s->data);
+    frk_dict_node_t **buckets = s->calloc(sizeof(frk_dict_node_t *) * frk_dict_init_size, s->data);
     if (buckets == NULL) {
         return;
     }
@@ -379,6 +387,7 @@ frk_dict_iter(frk_dict_t *d, frk_dict_iter_t *last, frk_dict_iter_t *next)
             if (d->buckets[b] != NULL) {
                 next->bucket = b;
                 next->node = d->buckets[b];
+                next->item = next->node->item;
                 return next;
             }
         }
@@ -391,7 +400,7 @@ frk_dict_iter(frk_dict_t *d, frk_dict_iter_t *last, frk_dict_iter_t *next)
 frk_item_t*
 frk_list_get(frk_list_t *l, int64_t index)
 {
-    return l->count < index ? l->items[index]: NULL;
+    return index < l->count ? l->items[index]: NULL;
 }
 
 
@@ -429,7 +438,7 @@ frk_list_resize(frk_list_t *l)
     frk_store_t *s = l->store;
 
     int64_t cap = l->capacity * frk_list_incr_rate;
-    frk_item_t **items = s->malloc(sizeof(frk_item_t *) * cap, s->data);
+    frk_item_t **items = s->calloc(sizeof(frk_item_t *) * cap, s->data);
 
     if (items == NULL) {
         return NULL;
@@ -523,7 +532,7 @@ frk_list_iter_t*
 frk_list_iter(frk_list_t *l, frk_list_iter_t *last)
 {
     if ((last == NULL && l->count == 0)
-        || (last != NULL && last >= l->items + l->count)) {
+        || (last != NULL && last + 1 >= l->items + l->count)) {
         return NULL;
     }
     return last == NULL ? l->items : last + 1;
@@ -533,7 +542,13 @@ frk_list_iter(frk_list_t *l, frk_list_iter_t *last)
 void
 frk_list_del(frk_list_t *l, int64_t index)
 {
+    if (index >= l->count) {
+        return;
+    }
 
+    frk_item_t **start = l->items + index;
+    memmove(start, start + 1, sizeof(frk_item_t *) * (l->count - index - 1));
+    l->count--;
 }
 
 
@@ -549,7 +564,7 @@ frk_list_clear(frk_list_t *l)
     }
     l->count = 0;
 
-    frk_item_t **items = s->malloc(sizeof(frk_item_t*) * frk_list_init_size, s->data);
+    frk_item_t **items = s->calloc(sizeof(frk_item_t*) * frk_list_init_size, s->data);
     if (items == NULL) {
         return;
     }

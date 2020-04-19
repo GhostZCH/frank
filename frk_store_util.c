@@ -5,133 +5,183 @@
 #include <frk_store_util.h>
 
 
-// int64_t
-// frk_str_dump(frk_str_t* str, char *buffer, int64_t len)
-// {
-//     if (len < str->len + 2) {
-//         return -1;
-//     }
 
-//     char *p = buffer;
-//     *p++ = '"';
-//     memcpy(p, str->data, str->len);
-//     p += str->len;
-//     *p++ = '"';
-//     return str->len + 2;
-// }
+int64_t
+frk_dump_num(frk_item_t *item, char* buf, int64_t len)
+{
+    int n = snprintf(buf, len, "%lf", item->n);
+    if (n == len) {
+        return -1;
+    }
+    return n;
+}
 
 
-// int64_t
-// frk_dump(frk_item_t *item, char* buf, int64_t len, char** end)
-// {
-//     if (item == NULL || buf == NULL || end == buf) {
-//         return -1;
-//     }
+int64_t
+frk_dump_orgin_str(char *str, int64_t slen, char* buf, int64_t blen)
+{
+    int64_t i;
+    int64_t quotes = 0;
 
-//     int64_t n;
-//     char *p = buf;
+    for (i = 0; i < slen; i++) {
+        if (str[i] == '"') {
+            quotes++;
+        }
+    }
 
-//     *p++ = '{';
-//     frk_dict_iter_t tmp, *i = frk_dict_iter(d, NULL, &tmp);
-//     for (; i != NULL; i = frk_dict_iter(d, i, &tmp)) {
-//         frk_dict_node_t *node = i->node;
+    if (quotes + slen + 2 > blen) {
+        return -1;
+    }
 
-//         n = frk_str_dump(node->key, p, end - p);
-//         if (n < 0 || p + n + 1 >= end) {
-//             return -1;
-//         }
-//         p += n;
-//         *p++ = ':';
+    *buf++ = '"';
+    for (i = 0; i < slen; i++) {
+        if (str[i] == '"') {
+            *buf++ = '\\';
+        }
+        *buf++ = str[i];
+    }
+    *buf++ = '"';
 
-//         if (node->type == FRK_STR) {
-//             n = frk_str_dump(node->s, p, end - p);
-//         } else if (node->type == FRK_NUM) {
-//             n = end - p < 20 ? -1: sprintf(p, "%lf", i->node->n);
-//         } else {
-//             n = frk_dict_dump(node->d, p, end - p);
-//         }
-        
-//         if (n < 0 || p + n + 1 >= end) {
-//             return -1;
-//         }
-//         p += n;
-//         *p++ = ',';
-//     }
-
-//     if (*(p - 1) == ',') {
-//         p--;
-//     }
-//     *p++ = '}';
-
-//     return p - buffer;
-// }
+    return quotes + slen + 2;
+}
 
 
-// char*
-// frk_next_char(char* p)
-// {
-//     for(;*p == ' ' && *p; p++);
-//     return p;
-// }
+int64_t
+frk_dump_str(frk_item_t *item, char* buf, int64_t len)
+{
+    return frk_dump_orgin_str(item->s->data, item->s->len, buf, len);
+}
 
 
-// frk_item_t*
-// frk_load(frk_store_t *s, char* json, char **end)
-// {
-//     char *p = json, *tmp, *key;
-//     if (*(p = frk_next_char(p))!= '{') {
-//         return NULL;
-//     }
-//     p++;
+int64_t
+frk_dump_key(frk_dict_node_t *node, char* buf, int64_t len)
+{
+    int64_t n = frk_dump_orgin_str(node->key, node->klen, buf, len);
 
-//     // todo rewrite this
-//     while (*(p = frk_next_char(p))) {
-//         char* key;
-//         int64_t key_len;
+    if (n < 0) {
+        return n;
+    }
 
-//         if (*p != '"' || (tmp = strchr(p+1, '"')) == NULL) {
-//             return NULL;
-//         }
-//         key = p + 1;
-//         key_len = tmp - p - 1;
+    if (n + 1 >= len) {
+        return -1;
+    }
 
-//         p = frk_next_char(tmp + 1);
-//         if (*p++ != ':') {
-//             return NULL;
-//         }
-//         p = frk_next_char(p);
+    buf[n] = ':';
+    return n + 1;
+}
 
-//         if (*p == '"') {
-//             if ((tmp = strchr(p+1, '"')) == NULL
-//                 || frk_dict_set_str(d, key, key_len, p + 1, tmp - p - 1) == NULL) {
-//                 return NULL;
-//             }
-//             p = tmp + 1;
-//         } else if (*p == '-' || (*p <= '9' && *p >= '0')) {
-//             double n = strtod(p, &p);
-//             if (frk_dict_set_num(d, key, key_len, n) == NULL) {
-//                 return NULL;
-//             }
-//         } else if (*p == '{') {
-//             frk_dict_t* val = frk_dict_set_dict(d, key, key_len);
-//             if (frk_dict_load(val, p, &p) == NULL) {
-//                 return NULL;
-//             }
-//         } else {
-//             return NULL;
-//         }
 
-//         if (*p++ == '}') {
-//             break;
-//         }
+int64_t
+frk_dump_dict(frk_item_t *item, char* buf, int64_t len)
+{
+    if (len < 2) {
+        return -1;
+    }
 
-//         if (*p == ',') {
-//             p++;
-//         }
-//     }
+    *buf++ = '{';
+    len--;
 
-//     if (end != NULL) {
-//         *end = p;
-//     }
-//     return d;
-// }
+    int64_t n, total = 1;
+    frk_dict_iter_t tmp, *i;
+
+    i = frk_dict_iter(item->d, NULL, &tmp);
+    for (; i != NULL; i = frk_dict_iter(item->d, i, &tmp)) {
+        // dump key
+        n = frk_dump_key(i->node, buf, len);
+        if (n < 0) {
+            return n;
+        }
+        total += n;
+        buf += n;
+        len -= n;
+
+        // dump value
+        n = frk_dump_item(i->item, buf, len, ',');
+        if (n < 0) {
+            return n;
+        }
+        buf += n;
+        len -= n ;
+        total += n;
+    }
+
+    if (*(buf - 1) == ',') {
+        *(buf - 1) = '}';
+    }
+
+    return total;
+}
+
+
+
+int64_t
+frk_dump_list(frk_item_t *item, char* buf, int64_t len)
+{
+    if (len < 2) {
+        return -1;
+    }
+
+    *buf++ = '[';
+    len--;
+
+    int64_t n, total = 1;
+    frk_list_iter_t *i = frk_list_iter(item->l, NULL);
+    for (; i != NULL; i = frk_list_iter(item->l, i)) {
+        n = frk_dump_item(*i, buf, len, ',');
+        if (n < 0) {
+            return n;
+        }
+        buf += n;
+        len -= n;
+        total += n ;
+    }
+
+    if (*(buf - 1) == ',') {
+        *(buf - 1) = ']';
+    }
+
+    return total;
+}
+
+
+int64_t
+frk_dump_item(frk_item_t *item, char* buf, int64_t len, char end)
+{
+    int64_t n;
+
+    switch (item->type)
+    {
+    case FRK_NUM:
+        n = frk_dump_num(item, buf, len);
+        break;
+
+    case FRK_STR:
+        n = frk_dump_str(item, buf, len);
+        break;
+
+    case FRK_DICT:
+        n = frk_dump_dict(item, buf, len);
+        break;
+
+    case FRK_LIST:
+        n = frk_dump_list(item, buf, len);
+        break;
+
+    default:
+        n = -2;
+    }
+
+    if (n < 0) {
+        return n;
+    }
+
+    if (end > 0) {
+        if (n + 1 >= len) {
+            return -1;
+        }
+        buf[n] = end;
+    }
+
+    return n + 1;
+}
+

@@ -1,6 +1,4 @@
 + user object
-+ add container
-+ add list
 + add makefile
 + modify readme 
 + rewirte json operation
