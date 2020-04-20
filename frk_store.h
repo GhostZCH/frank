@@ -132,4 +132,7 @@ frk_list_iter_t*frk_list_iter(frk_list_t *l, frk_list_iter_t *last);
 void frk_list_del(frk_list_t *l, int64_t index);
 void frk_list_clear(frk_list_t *l);
 
+int64_t frk_dump_item(frk_item_t *item, char* buf, int64_t len, char end);
+frk_item_t* frk_load_item(frk_store_t *store, char* json, char **end);
+
 #endif

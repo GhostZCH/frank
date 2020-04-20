@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <memory.h>
 #include <string.h>
+
 #include <frk_store.h>
+
 
 const int64_t frk_dict_init_size = 8;
 const int64_t frk_dict_load_rate = 4;
@@ -272,19 +275,16 @@ frk_dict_get_dict(frk_dict_t *d, char *key, int64_t klen)
 
 
 frk_item_t*
-frk_dict_set(frk_dict_t *d, char *key, int64_t klen, frk_type_e t, void* val, int64_t vlen)
+frk_dict_set_item(frk_dict_t *d, char *key, int64_t klen, frk_item_t* item)
 {
     frk_store_t* s = d->store;
-    frk_item_t * i = frk_new_item(s, t, val, vlen);
     frk_dict_node_t* n = s->calloc(sizeof(frk_dict_node_t) + klen, s->data);
 
-    if (n == NULL || i == NULL) {
-        s->free(n, s->data);
-        s->free(i, s->data);
+    if (n == NULL) {
         return NULL;
     }
 
-    n->item = i;
+    n->item = item;
     n->klen = klen;
     n->hash = frk_hash(key, klen);
     memcpy(n->key, key, klen);
@@ -297,6 +297,24 @@ frk_dict_set(frk_dict_t *d, char *key, int64_t klen, frk_type_e t, void* val, in
     }
 
     return n->item;
+}
+
+
+frk_item_t*
+frk_dict_set(frk_dict_t *d, char *key, int64_t klen, frk_type_e t, void* val, int64_t vlen)
+{
+    frk_store_t* s = d->store;
+    frk_item_t * i = frk_new_item(s, t, val, vlen);
+    if (i == NULL) {
+        return NULL;
+    }
+
+    if (frk_dict_set_item(d, key, klen, i) == NULL) {
+        s->free(i, s->data);
+        return NULL;
+    }
+
+    return i;
 }
 
 
@@ -336,7 +354,7 @@ frk_dict_clear(frk_dict_t* d)
     int64_t b = 0;
     for (b = 0; b < d->bucket_count; b++) {
         frk_dict_node_t *next, *iter = d->buckets[b];
-        for (; next != NULL; iter = next) {
+        for (; iter != NULL; iter = next) {
             next = iter->next;
             frk_item_free(s, iter->item);
             s->free(iter, s->data);
@@ -454,7 +472,7 @@ frk_list_resize(frk_list_t *l)
 
 
 frk_item_t*
-frk_list_set(frk_list_t *l, int64_t index, frk_type_e t, void* val, int64_t len)
+frk_list_set_item(frk_list_t *l, int64_t index, frk_item_t* item)
 {
     if (index > l->count) {
         return NULL;
@@ -465,10 +483,20 @@ frk_list_set(frk_list_t *l, int64_t index, frk_type_e t, void* val, int64_t len)
     }
 
     frk_item_free(l->store, l->items[index]);
-    l->items[index] = frk_new_item(l->store, t, val, len);
+    l->items[index] = item;
     l->count += (index == l->count) ? 1 : 0;
+}
 
-    return l->items[index];
+
+frk_item_t*
+frk_list_set(frk_list_t *l, int64_t index, frk_type_e t, void* val, int64_t len)
+{
+    frk_item_t* item = frk_new_item(l->store, t, val, len);
+    if (frk_list_set_item(l, index, item) == NULL) {
+        frk_item_free(l->store, item);
+        return NULL;
+    }
+    return item;
 }
 
 
@@ -572,4 +600,371 @@ frk_list_clear(frk_list_t *l)
     s->free(l->items, s->data);
     l->capacity = frk_list_init_size;
     l->items = items;
+}
+
+int64_t
+frk_dump_num(frk_item_t *item, char* buf, int64_t len)
+{
+    int n = snprintf(buf, len, "%lf", item->n);
+    if (n == len) {
+        return -1;
+    }
+    return n;
+}
+
+
+int64_t
+frk_dump_orgin_str(char *str, int64_t slen, char* buf, int64_t blen)
+{
+    int64_t i;
+    int64_t quotes = 0;
+
+    for (i = 0; i < slen; i++) {
+        if (str[i] == '"') {
+            quotes++;
+        }
+    }
+
+    if (quotes + slen + 2 > blen) {
+        return -1;
+    }
+
+    *buf++ = '"';
+    for (i = 0; i < slen; i++) {
+        if (str[i] == '"') {
+            *buf++ = '\\';
+        }
+        *buf++ = str[i];
+    }
+    *buf++ = '"';
+
+    return quotes + slen + 2;
+}
+
+
+int64_t
+frk_dump_str(frk_item_t *item, char* buf, int64_t len)
+{
+    return frk_dump_orgin_str(item->s->data, item->s->len, buf, len);
+}
+
+
+int64_t
+frk_dump_key(frk_dict_node_t *node, char* buf, int64_t len)
+{
+    int64_t n = frk_dump_orgin_str(node->key, node->klen, buf, len);
+
+    if (n < 0) {
+        return n;
+    }
+
+    if (n + 1 >= len) {
+        return -1;
+    }
+
+    buf[n] = ':';
+    return n + 1;
+}
+
+
+int64_t
+frk_dump_dict(frk_item_t *item, char* buf, int64_t len)
+{
+    if (len < 2) {
+        return -1;
+    }
+
+    *buf++ = '{';
+    len--;
+
+    int64_t n, total = 1;
+    frk_dict_iter_t tmp, *i;
+
+    i = frk_dict_iter(item->d, NULL, &tmp);
+    for (; i != NULL; i = frk_dict_iter(item->d, i, &tmp)) {
+        // dump key
+        n = frk_dump_key(i->node, buf, len);
+        if (n < 0) {
+            return n;
+        }
+        total += n;
+        buf += n;
+        len -= n;
+
+        // dump value
+        n = frk_dump_item(i->item, buf, len, ',');
+        if (n < 0) {
+            return n;
+        }
+        buf += n;
+        len -= n ;
+        total += n;
+    }
+
+    if (*(buf - 1) == ',') {
+        *(buf - 1) = '}';
+    }
+
+    return total;
+}
+
+
+
+int64_t
+frk_dump_list(frk_item_t *item, char* buf, int64_t len)
+{
+    if (len < 2) {
+        return -1;
+    }
+
+    *buf++ = '[';
+    len--;
+
+    int64_t n, total = 1;
+    frk_list_iter_t *i = frk_list_iter(item->l, NULL);
+    for (; i != NULL; i = frk_list_iter(item->l, i)) {
+        n = frk_dump_item(*i, buf, len, ',');
+        if (n < 0) {
+            return n;
+        }
+        buf += n;
+        len -= n;
+        total += n ;
+    }
+
+    if (*(buf - 1) == ',') {
+        *(buf - 1) = ']';
+    }
+
+    return total;
+}
+
+
+int64_t
+frk_dump_item(frk_item_t *item, char* buf, int64_t len, char end)
+{
+    int64_t n;
+
+    switch (item->type)
+    {
+    case FRK_NUM:
+        n = frk_dump_num(item, buf, len);
+        break;
+
+    case FRK_STR:
+        n = frk_dump_str(item, buf, len);
+        break;
+
+    case FRK_DICT:
+        n = frk_dump_dict(item, buf, len);
+        break;
+
+    case FRK_LIST:
+        n = frk_dump_list(item, buf, len);
+        break;
+
+    default:
+        n = -2;
+    }
+
+    if (n < 0) {
+        return n;
+    }
+
+    if (end > 0) {
+        if (n + 1 >= len) {
+            return -1;
+        }
+        buf[n] = end;
+    }
+
+    return n + 1;
+}
+
+
+char*
+frk_next_char(char *p, char* white)
+{
+    char *w;
+    for (; *p != '\0'; p++) {
+        for (w = white; *w != '\0' && *w != *p; w++);
+        if (*w == '\0') {
+            return p;
+        }
+    }
+    return p;
+}
+
+
+frk_item_t*
+frk_load_num(frk_store_t *s, char* json, char** end)
+{
+    double d = strtod(json, end);
+    if (*end == json) {
+        return NULL;
+    }
+    return frk_new_item(s, FRK_NUM, &d, sizeof(double));
+}
+
+
+frk_item_t*
+frk_load_str(frk_store_t *s, char* json, char** end)
+{
+    if (*json != '"') {
+        return NULL;
+    }
+
+    *end = strchr(json + 1, '"');
+    for (; *end != NULL && *(*end - 1) == '\\'; *end = strchr(*end + 1, '"'));
+    if (*end  == NULL) {
+        return NULL;
+    }
+    *end += 1;
+    return frk_new_item(s, FRK_STR, json + 1, (*end) - json - 2);
+}
+
+
+frk_item_t*
+frk_load_dict(frk_store_t *s, char* json, char** end)
+{
+    frk_item_t* item = frk_new_item(s, FRK_DICT, NULL, 0);
+    if (item == NULL){
+        return NULL;
+    }
+
+    frk_dict_t* d = item->d;
+    char *key, *keyend, *p = json + 1;
+
+    int ok = 1;
+    while (*p && *p != '}') {
+        if (*(p = frk_next_char(p, " ")) != '"') {
+            ok = 0;
+            break;
+        }
+
+        key = p + 1;
+        keyend = strchr(key + 1, '"');
+        for (; keyend != NULL && *(keyend - 1) == '\\'; keyend = strchr(keyend + 1, '"'));
+        if (keyend == NULL) {
+            ok = 0;
+            break;
+        }
+
+        if ((p = frk_next_char(keyend + 1, " ")) == NULL) {
+            ok = 0;
+            break;
+        }
+
+        if (*p != ':') {
+            ok = 0;
+            break;
+        }
+
+        frk_item_t *val = frk_load_item(s, p + 1, &p);
+        if (val == NULL) {
+            ok = 0;
+            break;
+        }
+
+        if (frk_dict_set_item(d, key, keyend - key, val) == NULL) {
+            frk_item_free(s, val);
+            ok = 0;
+            break;
+        }
+
+        if (*p != ',' && *p != '}') {
+            ok = 0;
+            break;
+        }
+
+        if (*p == ','){
+            p++;
+        }
+    }
+
+    if (ok == 0) {
+        frk_item_free(s, item);
+        return NULL;
+    }
+
+    *end = p + 1;
+    return item;
+}
+
+
+frk_item_t*
+frk_load_list(frk_store_t *s, char* json, char** end)
+{
+    frk_item_t* item = frk_new_item(s, FRK_LIST, NULL, 0);
+    if (item == NULL){
+        return NULL;
+    }
+
+    frk_list_t* l = item->l;
+    char *p = json + 1;
+
+    int ok = 1;
+    while (*p && *p != ']') {
+        p = frk_next_char(p, " ");
+
+        frk_item_t *val = frk_load_item(s, p, &p);
+        if (val == NULL) {
+            ok = 0;
+            break;
+        }
+
+        if (frk_list_set_item(l, l->count, val) == NULL) {
+            frk_item_free(s, val);
+            ok = 0;
+            break;
+        }
+
+        if (*p != ',' && *p != ']') {
+            ok = 0;
+            break;
+        }
+
+        if (*p == ','){
+            p++;
+        }
+    }
+
+    if (ok == 0) {
+        frk_item_free(s, item);
+        return NULL;
+    }
+
+    *end = p + 1;
+    return item;
+}
+
+
+frk_item_t*
+frk_load_item(frk_store_t *store, char* json, char** end)
+{
+    char *tmp, *p;
+
+    if (end == NULL) {
+        end = &tmp;
+    }
+
+    json = frk_next_char(json, " ");
+
+    if (*json == '{') {
+        return frk_load_dict(store, json, end);
+    }
+
+    if (*json == '[') {
+        return frk_load_list(store, json, end);
+    }
+
+    if (*json == '"') {
+        return frk_load_str(store, json, end);
+    }
+
+    if (*json == '+' || *json == '-' || isdigit(*json)) {
+        return frk_load_num(store, json, end);
+    }
+
+    return NULL;
 }

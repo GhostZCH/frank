@@ -2,9 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <frk_store.h>
-#include <frk_store_util.h>
 #include <frk_slab.h>
+#include <frk_store.h>
 
 
 const size_t size = 1024 * 10240;
@@ -13,16 +12,14 @@ const size_t size = 1024 * 10240;
 void*
 slab_malloc(int64_t size, void* data)
 {
-    frk_slab_t *s = data;
-    return frk_slab_malloc(s, size, 1);
+    return frk_slab_malloc(data, size, 1);
 }
 
 
 void
 slab_free(void* ptr, void* data)
 {
-    frk_slab_t *s = data;
-    return frk_slab_free(s, ptr);
+    return frk_slab_free(data, ptr);
 }
 
 
@@ -131,59 +128,24 @@ void store_test()
         printf("%s: %lf\n", i->node->key, i->item->n);
     }
 
+    // dump
     char *buffer = calloc(1024, 100);
     frk_dump_item(root, buffer, 102400, '\n');
     printf("sites:\n %s\n", buffer);
+
+    // load
+    frk_item_t *load = frk_load_item(store, buffer, NULL);
+    frk_dump_item(load, buffer, 102400, '\n');
+    printf("load:\n %s\n", buffer);
+
     free(buffer);
 }
 
-
-void 
-load_test()
-{
-    char *json = 
-        "{\"a.com\":"
-            "{\"news.a.com\":{\"timeout\":5.000000,\"upstream\":\"192.168.0.100:5000\","
-                "\"black_ip\":{\"222.222.222.4\":1.000000,\"222.222.222.1\":1.000000,\"222.222.222.2\":1.000000,\"222.222.222.3\":1.000000}},"
-            "\"www.a.com\":{\"buffer\":1024.000000,\"timeout\":5.000000,\"upstream\":\"192.168.0.3:5000\"},"
-            "\".a.com\":{\"buffer\":4096.000000,\"timeout\":10.000000,\"upstream\":\"127.0.0.1:5000\"}},"
-        "\"b.com\":"
-            "{\".b.co\":{\"buffer\":40960.000000,\"timeout\":100.000000}},"
-        "\"c.com\":"
-            "{\"www.c.com\":{\"buffer\":10240.000000,\"timeout\":200.000000}}}";
-
-    void* pool = malloc(size);
-    frk_slab_t *slab = frk_new_slab(pool, size);
-    frk_store_t *store = frk_new_store(slab_malloc, slab_free, slab);
-
-    frk_item_t* root = frk_root(store);
-    frk_dict_t* sites = root->d;
-
-    frk_dict_t *a_com = frk_dict_get_dict(sites, "a.com", strlen("a.com"));
-    frk_dict_t *news_a_com = frk_dict_get_dict(a_com, "news.a.com", strlen("news.a.com"));
-    frk_dict_t *black = frk_dict_get_dict(news_a_com, "black_ip", strlen("black_ip"));
-
-    frk_dict_iter_t tmp, *i = frk_dict_iter(black, NULL, &tmp);
-    for (; i != NULL; i = frk_dict_iter(black, i, &tmp)) {
-        // i->node->key->data may not ends with '\0' don't do that in product
-        printf("%s: %lf\n", i->node->key, i->node->item->n);
-    }
-
-//     char *buffer = calloc(1024, 100);
-//     frk_dict_dump(sites, buffer, 102400);
-//     printf("load:\n %s\n", buffer);
-
-//     frk_dict_clear(sites);
-//     memset(buffer, 0, 102400);
-//     frk_dict_dump(sites, buffer, 102400);
-//     printf("load:\n %s\n", buffer);
-}
 
 int
 main() {
     slab_test();
     store_test();
-    // load_test();
 
     return 0;
 }
