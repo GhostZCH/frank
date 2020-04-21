@@ -36,7 +36,7 @@ slab_test()
     frk_slab_free(s, p);
 
     // test malloc free
-    for (int i = 0; i < 5000; i += 1) {
+    for (i = 0; i < 5000; i += 1) {
         void *p = frk_slab_malloc(s, i, 1);
         frk_slab_free(s, p);
         if (p == NULL) {
@@ -46,7 +46,7 @@ slab_test()
     }
 
     // test full
-    for (int i = 0; i < 10241; i++) {
+    for (i = 0; i < 10241; i++) {
         void *p = frk_slab_malloc(s, 1024, 0);
         if (p == NULL) {
             printf("malloc %d %p\n", i, p);
@@ -61,7 +61,8 @@ slab_test()
 // just for test
 #define _STR_(str) (str), (strlen(str))
 
-void store_test()
+void
+store_test()
 {
     frk_dict_iter_t tmp, *i;
 

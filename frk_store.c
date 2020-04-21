@@ -877,7 +877,7 @@ frk_load_dict(frk_store_t *s, char* json, char** end)
             break;
         }
 
-        if (*p == ','){
+        if (*p == ',') {
             p++;
         }
     }
