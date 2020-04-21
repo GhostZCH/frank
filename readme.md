@@ -9,7 +9,7 @@
 
 ### 使用
 
-    // get same memery, use shm or mmap for share memery
+    // get some memery, use shm or mmap for share memery
     void* pool = malloc(size);
     
     // init
